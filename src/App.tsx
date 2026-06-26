@@ -20,6 +20,7 @@ import QuizModesManager from "@/components/QuizModesManager";
 import AppVersionManager from '@/pages/AppVersionManager';
 import NotificationManager from '@/pages/NotificationManager';
 import EmailConfirmation from "./pages/EmailConfirmation";
+import NewsManagement from "./pages/NewsManagement";
 import Exams from "./pages/landing/Exams";
 import About from "./pages/landing/About";
 import TermsOfService from "./pages/landing/TermsOfService";
@@ -49,6 +50,7 @@ const App = () => (
             <Route path="/admin/quiz-modes" element={<QuizModesManager />} />
             <Route path="/admin/app-version-manager" element={<AppVersionManager />} />
             <Route path="/admin/notification-manager" element={<NotificationManager />} />
+            <Route path="/admin/news" element={<NewsManagement />} />
             <Route path="/email-confirmation" element={<EmailConfirmation />} />
             <Route path="/exams" element={<Exams />} />
             <Route path="/about" element={<About />} />

@@ -15,7 +15,8 @@ import {
   Shield,
   FolderOpen,
   ClipboardList,
-  Bell
+  Bell,
+  Newspaper
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -121,6 +122,14 @@ export default function AdminDashboard() {
       description: 'System notifications',
       color: 'text-indigo-600',
       route: '/admin/notification-manager',
+    },
+    {
+      title: 'Current Affairs',
+      value: '4h',
+      icon: Newspaper,
+      description: 'AI-powered news for UPSC/TNPSC',
+      color: 'text-teal-600',
+      route: '/admin/news',
     }
   ];
 
