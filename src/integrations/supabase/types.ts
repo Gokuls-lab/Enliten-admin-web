@@ -265,6 +265,8 @@ export type Database = {
       }
       quiz_sessions: {
         Row: {
+          ai_answers: Json | null
+          ai_questions: Json | null
           completed_at: string | null
           created_at: string | null
           id: string
@@ -275,6 +277,8 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          ai_answers?: Json | null
+          ai_questions?: Json | null
           completed_at?: string | null
           created_at?: string | null
           id?: string
@@ -285,6 +289,8 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          ai_answers?: Json | null
+          ai_questions?: Json | null
           completed_at?: string | null
           created_at?: string | null
           id?: string
@@ -345,18 +351,21 @@ export type Database = {
           created_at: string | null
           description: string | null
           id: string
+          image_url: string | null
           name: string
         }
         Insert: {
           created_at?: string | null
           description?: string | null
           id?: string
+          image_url?: string | null
           name: string
         }
         Update: {
           created_at?: string | null
           description?: string | null
           id?: string
+          image_url?: string | null
           name?: string
         }
         Relationships: []

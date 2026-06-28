@@ -7,8 +7,10 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { Settings, Save, Database, Mail, Shield, Globe } from 'lucide-react';
+import { Settings, Save, Database, Mail, Shield, Globe, BrainCircuit } from 'lucide-react';
 import Navbar from '@/components/Navbar';
+import { supabase } from '@/integrations/supabase/client';
+import { useEffect } from 'react';
 
 export default function SystemSettings() {
   const [settings, setSettings] = useState({
@@ -30,14 +32,46 @@ export default function SystemSettings() {
     maxFileUploadSize: 10
   });
 
+  const [aiConfig, setAiConfig] = useState({
+    model: 'qwen/qwen3.7-plus',
+    webModel: 'google/gemini-3-flash-preview',
+    v_5h_limit: 0.15,
+    v_7d_limit: 0.85
+  });
+
+  useEffect(() => {
+    const loadAiConfig = async () => {
+      try {
+        const { data } = await (supabase as any).from('system_settings').select('value').eq('key', 'ai_config').single();
+        if (data?.value) {
+          setAiConfig(prev => ({ ...prev, ...data.value }));
+        }
+      } catch (err) {
+        console.error('Failed to load AI config', err);
+      }
+    };
+    loadAiConfig();
+  }, []);
+
   const { toast } = useToast();
 
-  const handleSave = () => {
-    // In a real application, this would save to the database
-    toast({
-      title: "Settings Saved",
-      description: "System settings have been updated successfully",
-    });
+  const handleSave = async () => {
+    try {
+      await (supabase as any).from('system_settings').upsert({
+        key: 'ai_config',
+        value: aiConfig
+      });
+      toast({
+        title: "Settings Saved",
+        description: "System settings have been updated successfully",
+      });
+    } catch (err) {
+      toast({
+        title: "Error Saving Settings",
+        description: "Failed to save AI configuration to database.",
+        variant: "destructive"
+      });
+    }
   };
 
   const handleReset = () => {
@@ -61,6 +95,60 @@ export default function SystemSettings() {
         </div>
 
         <div className="space-y-6">
+          {/* AI Configuration */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <BrainCircuit className="h-5 w-5" />
+                <span>AI Configuration</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="aiModel">Main Chat Default Model (OpenRouter)</Label>
+                  <Input
+                    id="aiModel"
+                    value={aiConfig.model}
+                    onChange={(e) => setAiConfig({ ...aiConfig, model: e.target.value })}
+                    placeholder="e.g. qwen/qwen3.7-plus"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="aiWebModel">Web Enabled Model (OpenRouter)</Label>
+                  <Input
+                    id="aiWebModel"
+                    value={aiConfig.webModel}
+                    onChange={(e) => setAiConfig({ ...aiConfig, webModel: e.target.value })}
+                    placeholder="e.g. google/gemini-3-flash-preview"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="v5hLimit">5-Hour Budget Limit (USD)</Label>
+                  <Input
+                    id="v5hLimit"
+                    type="number"
+                    step="0.01"
+                    value={aiConfig.v_5h_limit}
+                    onChange={(e) => setAiConfig({ ...aiConfig, v_5h_limit: parseFloat(e.target.value) })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="v7dLimit">7-Day Budget Limit (USD)</Label>
+                  <Input
+                    id="v7dLimit"
+                    type="number"
+                    step="0.01"
+                    value={aiConfig.v_7d_limit}
+                    onChange={(e) => setAiConfig({ ...aiConfig, v_7d_limit: parseFloat(e.target.value) })}
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* General Settings */}
           <Card>
             <CardHeader>

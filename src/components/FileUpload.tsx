@@ -16,18 +16,26 @@ interface Exam {
   short_name: string;
 }
 
+interface Subject {
+  id: string;
+  name: string;
+}
+
 interface FileUploadProps {
   exams: Exam[];
+  subjects: Subject[];
   onUploadComplete: () => void;
 }
 
-const FileUpload: React.FC<FileUploadProps> = ({ exams, onUploadComplete }) => {
+const FileUpload: React.FC<FileUploadProps> = ({ exams, subjects, onUploadComplete }) => {
   const [files, setFiles] = useState<File[]>([]);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [resourceType, setResourceType] = useState<'file' | 'youtube_link'>('file');
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [selectedExams, setSelectedExams] = useState<string[]>([]);
+  const [selectedSubject, setSelectedSubject] = useState<string | 'none'>('none');
+  const [orderIndex, setOrderIndex] = useState<string>('0');
   const [isActive, setIsActive] = useState(true);
   const [uploading, setUploading] = useState(false);
   const { toast } = useToast();
@@ -73,6 +81,8 @@ const FileUpload: React.FC<FileUploadProps> = ({ exams, onUploadComplete }) => {
         file_name: fileName,
         file_url: fileUrl,
         resource_type: resourceType,
+        subject_id: selectedSubject !== 'none' ? selectedSubject : null,
+        order_index: parseInt(orderIndex, 10) || 0,
         is_active: isActive,
         created_by: user.user?.id
       })
@@ -168,6 +178,8 @@ const FileUpload: React.FC<FileUploadProps> = ({ exams, onUploadComplete }) => {
       setDescription('');
       setYoutubeUrl('');
       setSelectedExams([]);
+      setSelectedSubject('none');
+      setOrderIndex('0');
       setIsActive(true);
       
       onUploadComplete();
@@ -277,6 +289,35 @@ const FileUpload: React.FC<FileUploadProps> = ({ exams, onUploadComplete }) => {
             </div>
           ))}
         </div>
+      </div>
+
+      <div>
+        <Label>Subject</Label>
+        <Select value={selectedSubject} onValueChange={setSelectedSubject}>
+          <SelectTrigger>
+            <SelectValue placeholder="Select a subject (optional)" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">None</SelectItem>
+            {subjects.map((sub) => (
+              <SelectItem key={sub.id} value={sub.id}>
+                {sub.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div>
+        <Label htmlFor="order-index">Order Index</Label>
+        <Input
+          id="order-index"
+          type="number"
+          value={orderIndex}
+          onChange={(e) => setOrderIndex(e.target.value)}
+          placeholder="0"
+        />
+        <p className="text-sm text-gray-500 mt-1">Order in the subject timeline.</p>
       </div>
 
       <div className="flex items-center space-x-2">

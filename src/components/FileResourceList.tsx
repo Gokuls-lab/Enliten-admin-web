@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { FileText, Link, Download, Edit, Trash2, Eye, EyeOff } from 'lucide-react';
@@ -21,6 +22,8 @@ interface FileResource {
   resource_type: string;
   is_active: boolean;
   created_at: string;
+  subject_id: string | null;
+  order_index: number;
   file_resource_exams: Array<{
     exam_id: string;
     exams: {
@@ -36,16 +39,24 @@ interface Exam {
   short_name: string;
 }
 
+interface Subject {
+  id: string;
+  name: string;
+}
+
 interface FileResourceListProps {
   resources: FileResource[];
   exams: Exam[];
+  subjects: Subject[];
   onUpdate: () => void;
 }
 
-const FileResourceList: React.FC<FileResourceListProps> = ({ resources, exams, onUpdate }) => {
+const FileResourceList: React.FC<FileResourceListProps> = ({ resources, exams, subjects, onUpdate }) => {
   const [editingResource, setEditingResource] = useState<FileResource | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
+  const [editSubject, setEditSubject] = useState<string | 'none'>('none');
+  const [editOrderIndex, setEditOrderIndex] = useState<string>('0');
   const [editSelectedExams, setEditSelectedExams] = useState<string[]>([]);
   const [editIsActive, setEditIsActive] = useState(true);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -55,6 +66,8 @@ const FileResourceList: React.FC<FileResourceListProps> = ({ resources, exams, o
     setEditingResource(resource);
     setEditTitle(resource.title);
     setEditDescription(resource.description || '');
+    setEditSubject(resource.subject_id || 'none');
+    setEditOrderIndex((resource.order_index || 0).toString());
     setEditSelectedExams(resource.file_resource_exams.map(fre => fre.exam_id));
     setEditIsActive(resource.is_active);
     setEditDialogOpen(true);
@@ -78,6 +91,8 @@ const FileResourceList: React.FC<FileResourceListProps> = ({ resources, exams, o
         .update({
           title: editTitle,
           description: editDescription,
+          subject_id: editSubject !== 'none' ? editSubject : null,
+          order_index: parseInt(editOrderIndex, 10) || 0,
           is_active: editIsActive
         })
         .eq('id', editingResource.id);
@@ -276,6 +291,8 @@ const FileResourceList: React.FC<FileResourceListProps> = ({ resources, exams, o
 
             <p className="text-xs text-gray-500 mt-3">
               Created: {new Date(resource.created_at).toLocaleDateString()}
+              {resource.subject_id && ` • Subject: ${subjects.find(s => s.id === resource.subject_id)?.name || 'Unknown'}`}
+              {resource.order_index !== undefined && ` • Order: ${resource.order_index}`}
             </p>
           </CardContent>
         </Card>
@@ -303,6 +320,34 @@ const FileResourceList: React.FC<FileResourceListProps> = ({ resources, exams, o
                 value={editDescription}
                 onChange={(e) => setEditDescription(e.target.value)}
                 rows={3}
+              />
+            </div>
+
+            <div>
+              <Label>Subject</Label>
+              <Select value={editSubject} onValueChange={setEditSubject}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a subject (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {subjects.map((sub) => (
+                    <SelectItem key={sub.id} value={sub.id}>
+                      {sub.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label htmlFor="edit-order-index">Order Index</Label>
+              <Input
+                id="edit-order-index"
+                type="number"
+                value={editOrderIndex}
+                onChange={(e) => setEditOrderIndex(e.target.value)}
+                placeholder="0"
               />
             </div>
 

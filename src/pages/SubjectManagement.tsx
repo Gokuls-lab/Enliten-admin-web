@@ -18,6 +18,7 @@ interface Subject {
   id: string;
   name: string;
   description: string;
+  image_url?: string;
   created_at: string;
   subject_exams?: { exams: { id: string; title: string; category: string } }[];
 }
@@ -35,6 +36,7 @@ export default function SubjectManagement() {
   const [newSubject, setNewSubject] = useState({
     name: '',
     description: '',
+    image_url: '',
     selectedExams: [] as string[]
   });
 
@@ -156,7 +158,8 @@ export default function SubjectManagement() {
           .from('subjects')
           .update({
             name: subjectData.name,
-            description: subjectData.description
+            description: subjectData.description,
+            image_url: subjectData.image_url || null
           })
           .eq('id', editingSubject.id);
         if (subjectError) throw subjectError;
@@ -178,7 +181,8 @@ export default function SubjectManagement() {
           .from('subjects')
           .insert([{
             name: subjectData.name,
-            description: subjectData.description
+            description: subjectData.description,
+            image_url: subjectData.image_url || null
           }])
           .select()
           .single();
@@ -201,6 +205,7 @@ export default function SubjectManagement() {
       setNewSubject({
         name: '',
         description: '',
+        image_url: '',
         selectedExams: []
       });
       toast({
@@ -260,6 +265,7 @@ export default function SubjectManagement() {
     setNewSubject({
       name: subject.name,
       description: subject.description,
+      image_url: subject.image_url || '',
       selectedExams: currentExams?.map(rel => rel.exam_id) || []
     });
     setIsDialogOpen(true);
@@ -355,6 +361,17 @@ export default function SubjectManagement() {
                     onChange={(e) => setNewSubject({ ...newSubject, description: e.target.value })}
                     rows={3}
                   />
+                </div>
+                <div>
+                  <Label htmlFor="image_url">Image URL</Label>
+                  <Input
+                    id="image_url"
+                    type="url"
+                    placeholder="https://example.com/image.jpg"
+                    value={newSubject.image_url}
+                    onChange={(e) => setNewSubject({ ...newSubject, image_url: e.target.value })}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Optional: URL for the subject's display image</p>
                 </div>
                 
                 <div>

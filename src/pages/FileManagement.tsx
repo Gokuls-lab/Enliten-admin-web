@@ -15,6 +15,11 @@ interface Exam {
   short_name: string;
 }
 
+interface Subject {
+  id: string;
+  name: string;
+}
+
 interface FileResource {
   id: string;
   title: string;
@@ -24,6 +29,8 @@ interface FileResource {
   resource_type: string;
   is_active: boolean;
   created_at: string;
+  subject_id: string | null;
+  order_index: number;
   file_resource_exams: Array<{
     exam_id: string;
     exams: {
@@ -35,6 +42,7 @@ interface FileResource {
 
 const FileManagement: React.FC = () => {
   const [exams, setExams] = useState<Exam[]>([]);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
   const [resources, setResources] = useState<FileResource[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
@@ -54,6 +62,25 @@ const FileManagement: React.FC = () => {
       toast({
         title: "Error",
         description: "Failed to fetch exams",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const fetchSubjects = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('subjects')
+        .select('id, name')
+        .order('name');
+
+      if (error) throw error;
+      setSubjects(data || []);
+    } catch (error) {
+      console.error('Error fetching subjects:', error);
+      toast({
+        title: "Error",
+        description: "Failed to fetch subjects",
         variant: "destructive"
       });
     }
@@ -94,7 +121,7 @@ const FileManagement: React.FC = () => {
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      await Promise.all([fetchExams(), fetchResources()]);
+      await Promise.all([fetchExams(), fetchSubjects(), fetchResources()]);
       setLoading(false);
     };
 
@@ -140,7 +167,7 @@ const FileManagement: React.FC = () => {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <FileUpload exams={exams} onUploadComplete={handleDataRefresh} />
+              <FileUpload exams={exams} subjects={subjects} onUploadComplete={handleDataRefresh} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -163,6 +190,7 @@ const FileManagement: React.FC = () => {
                 <FileResourceList 
                   resources={resources} 
                   exams={exams} 
+                  subjects={subjects}
                   onUpdate={handleDataRefresh} 
                 />
               )}

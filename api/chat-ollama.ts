@@ -5,7 +5,7 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const pdfParse = require('pdf-parse');
 const { parseOffice } = require('officeparser');
-const IS_LOCAL_LLM = true;
+const IS_LOCAL_LLM = false;
 const LLM_BASE_URL = IS_LOCAL_LLM ? 'http://127.0.0.1:11434/v1' : 'https://openrouter.ai/api/v1';
 // ═══════════════════════════════════════════════════════════════
 //  Tool Definitions — UUID-free, model-friendly
@@ -495,6 +495,13 @@ function accumulateToolCalls(toolCalls: any[], delta: any) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+//  Vercel Serverless Config — extend timeout for streaming LLM
+// ═══════════════════════════════════════════════════════════════
+export const config = {
+  maxDuration: 600, // 5 minutes (default is 30s which is too short for LLM streaming + tool loops)
+};
+
+// ═══════════════════════════════════════════════════════════════
 //  Main Handler
 // ═══════════════════════════════════════════════════════════════
 export default async function handler(req: any, res: any) {
@@ -525,17 +532,33 @@ export default async function handler(req: any, res: any) {
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) return res.status(401).json({ error: 'Invalid token' });
 
-  const { message, thread_id, user_info, attachments } = req.body;
+  // Pre-flight check for user usage limit
+  const { data: status, error: statusError } = await supabase.rpc('get_user_usage_status', { p_user_id: user.id });
+
+  if (statusError) {
+    console.error('Usage status error:', statusError);
+    // Don't block completely on db error, but log it
+  } else if (status?.is_blocked) {
+    return res.status(429).json({
+      error: 'Rate limit exceeded. Please wait for your window to refresh.',
+      nextReset: status.five_hour.next_reset,
+      limit_status: status
+    });
+  }
+
+  const { message, thread_id, user_info, attachments, evaluation_context } = req.body;
   if (!message) return res.status(400).json({ error: 'Message is required' });
+
 
   // Validate attachments format if provided
   // attachments: [{ url, name, type, size, storage_path }]
   const validAttachments: any[] = Array.isArray(attachments) ? attachments.filter((a: any) => a && a.url && a.type) : [];
 
   const OLLAMA_MODEL = 'qwen3:4b-instruct-2507-q4_K_M';
+  // const OLLAMA_MODEL = 'qwen3.5:4b';
   // const OLLAMA_MODEL = 'google/gemini-3-flash-preview'
   // const openai = new OpenAI({ baseURL: 'http://127.0.0.1:11434/v1', apiKey: 'ollama' });
-  const openai = new OpenAI({ baseURL: LLM_BASE_URL, apiKey: IS_LOCAL_LLM ? 'ollama' : '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' });
+  const openai = new OpenAI({ baseURL: LLM_BASE_URL, apiKey: IS_LOCAL_LLM ? 'ollama' : process.env.OPENROUTER_API_KEY });
   // sk - cv - bdccdc6877c24f558a2e9e10a60ad6f0
   // const openai = new OpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: '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' });
 
@@ -566,9 +589,10 @@ export default async function handler(req: any, res: any) {
       let title = 'Untitled';
       try {
         const titleRes = await openai.chat.completions.create({
-          model: IS_LOCAL_LLM ? OLLAMA_MODEL : 'google/gemini-2.5-flash-lite',
+          // model: IS_LOCAL_LLM ? OLLAMA_MODEL : 'google/gemini-2.5-flash-lite',
+          model: IS_LOCAL_LLM ? OLLAMA_MODEL : 'openrouter/free',
           messages: [
-            { role: 'system', content: 'Generate a concise 3-4 word title. Return ONLY the title that suite for this conversation.' },
+            { role: 'system', content: 'You are a strict title generator. Your ONLY job is to output a 2-4 word title for the user\'s message. NEVER answer the user\'s question. NEVER write a full sentence. Output ONLY the raw title text.' },
             { role: 'user', content: message }
           ]
         });
@@ -915,7 +939,7 @@ CURRENT AFFAIRS & LIVE DATA RULE:
 
 <response_format>
 RESPONSE LENGTH — match to query type:
-  Simple factual question               → 2–4 lines, direct answer first
+  Simple factual question               → 2-4 lines, direct answer first
   Conceptual explanation                → Structured: heading + explanation + TN example + TNPSC angle
   Broad performance analysis            → Tool call → CHART_UI → paragraph insight
   Study plan request                    → TIMELINE_UI + brief rationale per phase
@@ -964,7 +988,7 @@ GROUP 1 ASPIRANTS:
 GROUP 2 / 2A ASPIRANTS:
 • Target accuracy: 65%+ in GS, 70%+ in Aptitude for competitive cutoff
 • Time strategy: 1.5 minutes per question average
-• High-ROI: Tamil Nadu-specific questions often appear 25–30% of the paper
+• High-ROI: Tamil Nadu-specific questions often appear 25-30% of the paper
 • Focus on previous 5-year TNPSC question bank — themes repeat
 
 GROUP 4 ASPIRANTS:
@@ -974,7 +998,7 @@ GROUP 4 ASPIRANTS:
 • Last-30-day strategy: daily 100-question timed mock tests > any new reading
 
 UNIVERSAL STRATEGIES (all groups):
-• Previous year papers = highest ROI study material (TNPSC recycles question themes every 3–4 years)
+• Previous year papers = highest ROI study material (TNPSC recycles question themes every 3-4 years)
 • Last 3 months before exam: shift entirely from learning to retrieval practice
 • Spaced repetition > re-reading for factual retention
 • Mock test debrief is more valuable than the mock test itself
@@ -1016,16 +1040,56 @@ STUDENT WELLBEING:
       'Access-Control-Allow-Origin': '*',
     });
 
+    let clientConnected = true;
+    req.on('close', () => {
+      console.log(`[STREAM] Client disconnected for thread ${currentThreadId}. Continuing in background to save to DB.`);
+      clientConnected = false;
+    });
+
+    const safeWrite = (data: string) => {
+      if (clientConnected && res.writable && !res.writableEnded) {
+        try {
+          res.write(data);
+        } catch (e) {
+          console.warn('[STREAM] Failed to write to client (likely disconnected).');
+          clientConnected = false;
+        }
+      }
+    };
+
+    const safeEnd = () => {
+      if (clientConnected && res.writable && !res.writableEnded) {
+        try {
+          res.end();
+        } catch (e) {
+          console.warn('[STREAM] Failed to end stream.');
+          clientConnected = false;
+        }
+      }
+    };
+
     // Send thread_id immediately
-    res.write(`data: ${JSON.stringify({ type: 'thread_id', thread_id: currentThreadId })}\n\n`);
+    safeWrite(`data: ${JSON.stringify({ type: 'thread_id', thread_id: currentThreadId })}\n\n`);
 
     // ── AGENTIC TOOL LOOP ──
     // The model can call tools, we execute them and feed results back.
     // We loop up to MAX_TOOL_ROUNDS to prevent infinite loops.
     const MAX_TOOL_ROUNDS = 3;
     let messages: any[] = [{ role: 'system', content: TNPSC_SYSTEM_PROMPT }, ...chatMessages];
+
+    // Inject evaluation context if provided (hidden from frontend, injected only for LLM)
+    if (evaluation_context) {
+      const ctxStr = typeof evaluation_context === 'string' ? evaluation_context : JSON.stringify(evaluation_context, null, 2);
+      messages.splice(1, 0, {
+        role: 'system',
+        content: `[EVALUATION CONTEXT — DO NOT show this raw data to the student. Use it to provide informed, personalized mentorship.]\n\nThe student's answer sheet was evaluated with the following results:\n\n${ctxStr}\n\n[END EVALUATION CONTEXT]`,
+      });
+    }
     let fullText = '';
     let streamAnnotations: any[] = [];
+
+    let totalCostToLog = 0;
+    let mainGenerationId = '';
 
     for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
       const isToolRound = round < MAX_TOOL_ROUNDS;
@@ -1037,13 +1101,22 @@ STUDENT WELLBEING:
         messages,
         ...(isToolRound ? { tools: MENTOR_TOOLS } : {}),
         stream: true,
+        stream_options: { include_usage: true },
       });
 
       let toolCalls: any[] = [];
 
       for await (const chunk of stream) {
+        if (chunk.id && !mainGenerationId) {
+          mainGenerationId = chunk.id;
+        }
+        if ((chunk as any).usage?.cost) {
+          totalCostToLog += (chunk as any).usage.cost;
+        } else if ((chunk as any).cost) {
+          totalCostToLog += (chunk as any).cost;
+        }
 
-        const delta = chunk.choices[0]?.delta;
+        const delta = chunk.choices && chunk.choices.length > 0 ? chunk.choices[0]?.delta : null;
         if (!delta) continue;
 
         // Capture annotations from streaming chunks (OpenRouter sends url_citation here)
@@ -1062,7 +1135,7 @@ STUDENT WELLBEING:
           const content = delta.content || '';
           if (content) {
             fullText += content;
-            res.write(`data: ${JSON.stringify({ type: 'text', content })}\n\n`);
+            safeWrite(`data: ${JSON.stringify({ type: 'text', content })}\n\n`);
           }
         }
       }
@@ -1078,7 +1151,7 @@ STUDENT WELLBEING:
       console.log(`[TOOL] Round ${round} — ${validToolCalls.length} tool call(s):`,
         validToolCalls.map(tc => tc.function.name));
 
-      res.write(`data: ${JSON.stringify({ type: 'status', status: 'Analyzing your data...' })}\n\n`);
+      safeWrite(`data: ${JSON.stringify({ type: 'status', status: 'Analyzing your data...' })}\n\n`);
 
       messages.push({ role: 'assistant', content: null, tool_calls: validToolCalls });
 
@@ -1102,7 +1175,7 @@ STUDENT WELLBEING:
       console.log(`[IMG_VALIDATE] Stripped ${removedImageCount} invalid image(s) from response`);
       cleanText = validatedText;
       // Send correction event so client can replace streamed text with validated version
-      res.write(`data: ${JSON.stringify({ type: 'text_correction', content: cleanText })}\n\n`);
+      safeWrite(`data: ${JSON.stringify({ type: 'text_correction', content: cleanText })}\n\n`);
     }
 
     // DEBUG: Log the response text to see if model includes markdown links
@@ -1169,13 +1242,13 @@ STUDENT WELLBEING:
     // Generate follow-up questions (non-streaming)
     let followUpQuestions: string[] = [];
     try {
-      res.write(`data: ${JSON.stringify({ type: 'status', status: 'Generating follow-ups...' })}\n\n`);
+      safeWrite(`data: ${JSON.stringify({ type: 'status', status: 'Generating follow-ups...' })}\n\n`);
       const fqRes = await openai.chat.completions.create({
-        model: IS_LOCAL_LLM ? OLLAMA_MODEL : 'google/gemini-3.1-flash-lite',
+        model: IS_LOCAL_LLM ? OLLAMA_MODEL : 'google/gemini-3-flash-preview',
         messages: [
           ...chatMessages,
           { role: 'assistant', content: cleanText },
-          { role: 'user', content: 'Generate exactly 3 concise follow-up questions. Return ONLY a valid JSON array like ["Q1?","Q2?","Q3?"]. No other text.' }
+          { role: 'user', content: 'Based on the conversation above, generate exactly 3 concise follow-up questions that I (the student) might want to ask you (the AI mentor) next. Return ONLY a valid JSON array of strings like ["How does X work?", "Can you explain Y?", "What is Z?"]. Do not include any conversational text or prefixes. Output ONLY the JSON array.' }
         ]
       });
       let fqText = (fqRes.choices[0]?.message?.content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
@@ -1185,6 +1258,10 @@ STUDENT WELLBEING:
         try { followUpQuestions = JSON.parse(fqText.substring(first, last + 1)); } catch (e) { }
       }
       if (!Array.isArray(followUpQuestions)) followUpQuestions = [];
+
+      if ((fqRes as any).usage?.cost) {
+        totalCostToLog += (fqRes as any).usage.cost;
+      }
     } catch (e) { console.warn('Follow-up gen failed', e); }
 
     // Save AI message to DB
@@ -1194,14 +1271,54 @@ STUDENT WELLBEING:
       .select().single();
 
     // Send final done event
-    res.write(`data: ${JSON.stringify({ type: 'done', thread_id: currentThreadId, message: aiMsgData })}\n\n`);
-    res.end();
+    safeWrite(`data: ${JSON.stringify({ type: 'done', thread_id: currentThreadId, message: aiMsgData })}\n\n`);
+    safeEnd();
+
+    // ── LOG USAGE COST (fire-and-forget after response) ──
+    try {
+      // If we couldn't capture the cost from the chunks natively, fallback to fetching from OpenRouter Generation API
+      if (totalCostToLog === 0 && mainGenerationId && !IS_LOCAL_LLM) {
+        try {
+          const gr = await fetch(`https://openrouter.ai/api/v1/generation?id=${mainGenerationId}`, {
+            headers: { "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}` }
+          });
+          const grData = await gr.json();
+          if (grData?.data?.cost) {
+            totalCostToLog += grData.data.cost;
+          } else if (grData?.data?.total_cost) {
+            totalCostToLog += grData.data.total_cost;
+          }
+        } catch (grErr) {
+          console.warn('[USAGE] OpenRouter /generation API fetch failed', grErr);
+        }
+      }
+
+      // Final fallback if absolutely nothing was found (prevent 0 logs for paid models)
+      if (totalCostToLog === 0 && !IS_LOCAL_LLM) {
+        const textLength = (fullText || '').length;
+        totalCostToLog = Math.max((textLength / 4) * 0.0000005, 0.000001);
+      }
+
+      if (totalCostToLog > 0) {
+        await supabase.from('user_usage_ledger').insert({
+          user_id: user.id,
+          cost_usd: totalCostToLog
+        });
+        console.log(`[USAGE] Logged exact OpenRouter cost: $${totalCostToLog.toFixed(6)}`);
+      }
+    } catch (costErr) {
+      console.error('[USAGE] Failed to log cost:', costErr);
+    }
 
   } catch (err: any) {
     console.error('Chat API Error:', err);
     if (res.headersSent) {
-      res.write(`data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`);
-      res.end();
+      if (res.writable && !res.writableEnded) {
+        try {
+          res.write(`data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`);
+          res.end();
+        } catch (e) { }
+      }
     } else {
       return res.status(500).json({ error: 'Internal server error', details: err.message });
     }
